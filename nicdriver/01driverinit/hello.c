@@ -18,13 +18,13 @@ MODULE_PARM_DESC(myname, "Craig Yang");
 static int __init my_init( void )
 {
 
-	printk( "<1>\nInstalling  module, hello world, %s\n",myname );
+    printk( "<1>\nInstalling  module, hello world, %s\n",myname );
 
-	return	0;
-} 
+    return	0;
+}
 
 
 static void __exit my_exit( void )
-{  
-	printk( "<1>Removing  module, bye\n");
+{
+    printk( "<1>Removing  module, bye\n");
 }
