@@ -21,8 +21,8 @@
 //#define DEVICE_ID	0x10B9	// 82572EI controller
 #define DEVICE_ID	0x100F	// 82572EM controller
 #define INTR_MASK   0xFFFFFFFF	// nic interrupt mask
-#define N_RX_DESC	   16	// number of RX Descriptors
-#define N_TX_DESC	   16	// number of TX Descriptors
+#define N_RX_DESC	   128	// number of RX Descriptors
+#define N_TX_DESC	   128	// number of TX Descriptors
 #define RX_BUFSIZ	  2048	// size of RX packet-buffer
 #define TX_BUFSIZ	  1536	// size of TX packet-buffer
 #define RX_MEMLEN	(RX_BUFSIZ + 16)*N_RX_DESC
@@ -66,7 +66,7 @@ typedef struct	{
 
 
 
-enum 	{
+enum 	{ 
 	E1000_CTRL	= 0x0000,	// Device Control
 	E1000_STATUS	= 0x0008,	// Device Status
 	E1000_CTRL_EXT	= 0x0018,	// Device Control Extended
@@ -319,6 +319,8 @@ int my_open( struct net_device *dev )
 		txq[ i ].special_info = 0;
 		}
 
+
+/*
 	rx_control = 0;
 	rx_control |= (0<<1);	// EN-bit (Enable)
 	rx_control |= (1<<2);	// SBP-bit (Store Bad Packets)
@@ -339,14 +341,14 @@ int my_open( struct net_device *dev )
 	rx_control |= (0<<25);	// BSEX-bit (Buffer Size Extension)
 	rx_control |= (1<<26);	// SECRC-bit (Strip Ethernet CRC)
 	rx_control |= (0<<27);	// FLEXBUF=0 (Flexible Buffer Size)	
-	// configure the controller's Receive Engine
-	//iowrite32( 0x0400801C, io + E1000_RCTL );
+*/	// configure the controller's Receive Engine
+	
+	iowrite32( 0x0400801C, io + E1000_RCTL );
+	rx_control=0x0400801C;
 	iowrite32( rxdescaddr, io + E1000_RDBAL );
 	iowrite32( 0x00000000, io + E1000_RDBAH );
 	iowrite32( N_RX_DESC * 16, io + E1000_RDLEN );
 	iowrite32( 0x01010000, io + E1000_RXDCTL );
-	rx_control |= (1<<1);
-	iowrite32( rx_control, io + E1000_RCTL );
 
 	// configure the controller's Transmit Engine
 	iowrite32( 0x0103F0F8, io + E1000_TCTL );
@@ -384,7 +386,7 @@ int my_open( struct net_device *dev )
 
 
 int my_stop( struct net_device *dev )
-{
+{ 
 	//--------------------------------------------------------
 	// The kernel calls this function whenever the 'ifconfig'
 	// command is executed to shut down the device interface.
@@ -453,11 +455,11 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 	// it is essential to free the socket-buffer structure
 	dev_kfree_skb( skb );
 	return	0;  // SUCCESS
-}
+} 
 
 
 void my_rx_handler( unsigned long data )
-{
+{ 
 	//--------------------------------------------------------------
 	// This function is scheduled by our driver's interrupt-handler
 	// whenever the controller has received some new packets. 
@@ -471,40 +473,39 @@ void my_rx_handler( unsigned long data )
 	int			len = rdq[ curr ].packet_length;
 	struct sk_buff		*skb = dev_alloc_skb( len + NET_IP_ALIGN );
 
+	int rxtail;
 
 	//printk("rx_handler is called,curr=%d\n",curr);
-	
-	// clear the current descriptor's status 
-	rdq[ curr ].desc_status = 0;
-	rdq[ curr ].desc_errors = 0;
-	
-	// allocate a new socket-buffer
-	if ( !skb ) { dev->stats.rx_dropped += 1; return; }
+ 	//while(	rdq[ curr ].desc_status !=0 ){
+		// clear the current descriptor's status 
+		rdq[ curr ].desc_status = 0;
+		rdq[ curr ].desc_errors = 0;
 
-	// copy received packet-data into this socket-buffer
-	memcpy( skb_put( skb, len ), src, len );
+		// allocate a new socket-buffer
+		if ( !skb ) { dev->stats.rx_dropped += 1; return; }
 
-	// adjust the socket-buffer's parameters
-	skb->dev = dev;
-	skb->protocol = eth_type_trans( skb, dev );
-	skb->ip_summed = CHECKSUM_NONE;
-	
-	
-	// advance our driver's 'rxnext' index 
-	mdp->rxnext = (1 + curr) % N_RX_DESC;
-	curr=mdp->rxnext;
+		// copy received packet-data into this socket-buffer
+		memcpy( skb_put( skb, len ), src, len );
 
-	// update the 'net_device' statistics
-	dev->stats.rx_packets += 1;
-	dev->stats.rx_bytes += len;
+		// adjust the socket-buffer's parameters
+		skb->dev = dev;
+		skb->protocol = eth_type_trans( skb, dev );
+		skb->ip_summed = CHECKSUM_NONE;
 
-	// record the timestamp
-	dev->last_rx = jiffies;
+		// advance our driver's 'rxnext' index 
+		curr = (++curr) % N_RX_DESC;
+		mdp->rxnext=curr;
+		
+		// update the 'net_device' statistics
+		dev->stats.rx_packets += 1;
+		dev->stats.rx_bytes += len;
 
-	// now hand over the socket-buffer to the kernel
-	netif_rx( skb );
+		// record the timestamp
+		dev->last_rx = jiffies;
 
-
+		// now hand over the socket-buffer to the kernel
+		netif_rx( skb );
+	//}
 
 } 
 
@@ -515,37 +516,38 @@ irqreturn_t my_isr( int irq, void *dev_id )
 	MY_DRIVERDATA	*mdp = netdev_priv (dev);	
 	unsigned int		intr_cause = ioread32( io + E1000_ICR );
 	static int	reps = 0;
-	
+
 	if ( intr_cause == 0 ) return IRQ_NONE;
 
-//	printk( "NIC2 %-2d  cause=%08X  ", ++reps, intr_cause );
-//	if ( intr_cause & (1<<0) ) printk( "TXDW " );
-//	if ( intr_cause & (1<<1) ) printk( "TXQE " );
-//	if ( intr_cause & (1<<2) ) printk( "LC " );
-	if ( intr_cause & (1<<4) ) printk( "RXDMT0 " );
-//	if ( intr_cause & (1<<6) ) printk( "RXO " );
-//	if ( intr_cause & (1<<7) ) printk( "RXT0 " );
-//	if ( intr_cause & (1<<9) ) printk( "MDAC " );
-//	if ( intr_cause & (1<<15) ) printk( "TXDLOW " );
-//	if ( intr_cause & (1<<16) ) printk( "SRPD " );
-//	if ( intr_cause & (1<<17) ) printk( "ACK " );
-//	printk( "\n" );	
+	//	printk( "NIC2 %-2d  cause=%08X  ", ++reps, intr_cause );
+	//	if ( intr_cause & (1<<0) ) printk( "TXDW " );
+	//	if ( intr_cause & (1<<1) ) printk( "TXQE " );
+	//	if ( intr_cause & (1<<2) ) printk( "LC " );
+	//  if ( intr_cause & (1<<4) ) printk( "RXDMT0 \n" );
+	//	if ( intr_cause & (1<<6) ) printk( "RXO " );
+	//	if ( intr_cause & (1<<7) ) printk( "RXT0 " );
+	//	if ( intr_cause & (1<<9) ) printk( "MDAC " );
+	//	if ( intr_cause & (1<<15) ) printk( "TXDLOW " );
+	//	if ( intr_cause & (1<<16) ) printk( "SRPD " );
+	//	if ( intr_cause & (1<<17) ) printk( "ACK " );
+	//	printk( "\n" );	
 
 	if ( intr_cause & (1<<4) ) 	// Rx-Descriptors Low
-		{
+	 {
 		int	rxtail = ioread32( io + E1000_RDT );
-		rxtail = (8 + rxtail) % N_RX_DESC;
+		rxtail = ( N_RX_DESC/8 + rxtail) % N_RX_DESC;
 		iowrite32( rxtail, io + E1000_RDT );
-		}
+	}
 	// schedule our interrupt-handler's 'bottom-half'
-	if ( intr_cause & (1<<7)) tasklet_schedule( &mdp->rx_tasklet );
+	if ( intr_cause & (1<<7) ) tasklet_schedule( &mdp->rx_tasklet );
+
 
 	// clear these interrupts
 	intr_cause=0;
 	iowrite32( intr_cause, io + E1000_ICR );
 
 	return	IRQ_HANDLED;
- } 
+}   
 
 
 
