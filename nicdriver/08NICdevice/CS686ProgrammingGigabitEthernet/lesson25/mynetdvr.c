@@ -62,7 +62,6 @@ typedef struct	{
 		unsigned char	txbuff[ N_TX_DESC * TX_BUFSIZ ];
 		unsigned int	rxnext;
 		struct tasklet_struct	rx_tasklet;
-	 	spinlock_t rx_lock;
 
 		} MY_DRIVERDATA;
 
@@ -108,8 +107,6 @@ static int __init my_init( void );
 static void __exit my_exit( void );
 irqreturn_t my_isr( int, void * );
 void my_rx_handler( unsigned long );
-void my_rx_handler_( struct net_device *dev );
-//void my_rx_handler_( unsigned long );
 int my_open( struct net_device * );
 int my_stop( struct net_device * );
 int my_hard_start_xmit( struct sk_buff *, struct net_device * );
@@ -221,7 +218,7 @@ static ssize_t my_get_info(struct file *filp,char *buf,size_t count,loff_t *offp
 
 
 static int __init my_init( void )
-{ 
+{
 	u16	pci_cmd;
 
 	printk( "<1>\nInstalling \'%s\' module\n", modname );
@@ -263,7 +260,6 @@ static int __init my_init( void )
     proc_create(modname, 0, NULL, &my_proc);
 
 	// register this driver's 'net_device' structure
-	printk("proc create\n");	
 	return	register_netdev( my_netdev );
 }
 
@@ -296,7 +292,6 @@ int my_open( struct net_device *dev )
 	unsigned long	txdescaddr = virt_to_phys( txq );
 	int		i;
 	int rx_control=0;
-	unsigned long flags;
 	printk( " %s: opening the \'%s\' device \n", modname, dev->name );
 
 	// reset the network controller
@@ -304,10 +299,8 @@ int my_open( struct net_device *dev )
 	iowrite32( 0x00000000, io + E1000_STATUS );
 	iowrite32( 0x040C0241, io + E1000_CTRL );
 	iowrite32( 0x000C0241, io + E1000_CTRL );
-	printk( " 4%s: opening the \'%s\' device \n", modname, dev->name );
 	while ( ( ioread32( io + E1000_STATUS )&3 ) != 3 );
 
-	printk( "the \'%s\' device is reseted\n", dev->name );
 	// initialize the RX Descriptor-queues
 	for (i = 0; i < N_RX_DESC; i++ )
 		{
@@ -319,7 +312,6 @@ int my_open( struct net_device *dev )
 		rxq[ i ].vlan_tag = 0;
 		} 
 
-	printk( " 5%s: opening the \'%s\' device \n", modname, dev->name );
 	// initialize the TX Descriptor-queues
 	for (i = 0; i < N_TX_DESC; i++ )
 		{
@@ -332,7 +324,6 @@ int my_open( struct net_device *dev )
 		txq[ i ].special_info = 0;
 		}
 
-	printk("rx and tx initialized\n ");
 
 /*
 	rx_control = 0;
@@ -364,8 +355,6 @@ int my_open( struct net_device *dev )
 	iowrite32( N_RX_DESC * 16, io + E1000_RDLEN );
 	iowrite32( 0x01010000, io + E1000_RXDCTL );
 
-//	spin_lock_init(&mdp->rx_lock );
-
 
 	// configure the controller's Transmit Engine
 	iowrite32( 0x0103F0F8, io + E1000_TCTL );
@@ -376,7 +365,7 @@ int my_open( struct net_device *dev )
 
 	// initialize our tasklet
 	mdp->rxnext = 0;
-//	tasklet_init( &mdp->rx_tasklet, my_rx_handler_, (unsigned long)dev );
+	tasklet_init( &mdp->rx_tasklet, my_rx_handler, (unsigned long)dev );
 	// install our driver's interrupt-handler
 	i = dev->irq;
 	if ( request_irq( i, my_isr, IRQF_SHARED, dev->name, dev ) < 0 )
@@ -398,7 +387,7 @@ int my_open( struct net_device *dev )
 	
 	netif_start_queue( dev );
 	return	0;  // SUCCESS
- } 
+ }
 
 
 int my_stop( struct net_device *dev )
@@ -429,7 +418,7 @@ int my_stop( struct net_device *dev )
 
 
 int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
-{   
+{  
 	//------------------------------------------------------------
 	// The kernel calls this function whenever its protocol layer
 	// has a packet that it wants the controller to transmit.  It
@@ -439,7 +428,6 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 
 	
 	MY_DRIVERDATA	*mdp = netdev_priv (dev);	
-	unsigned long flags;
 	TX_DESCRIPTOR	*txq ;
 	unsigned int	curr ;
 	
@@ -448,8 +436,6 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 	unsigned char	*dst ;
 	
 	unsigned short	len;
-	printk("hard_start_xmit\n");	
-	//spin_lock_irqsave(&mdp->rx_lock, flags);
 	
 	txq= mdp->txring;
 	curr= ioread32( io + E1000_TDT );
@@ -476,7 +462,6 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 		
 	// initiate the transmission
 	iowrite32( next, io + E1000_TDT );
-	//spin_unlock_irqrestore(&mdp->rx_lock,flags);
 	
 	// update the 'net_device' statistics
 	dev->stats.tx_packets += 1;
@@ -511,7 +496,6 @@ void my_rx_handler( unsigned long data )
 	//printk("rx_handler is called,status=%d, curr=%d,rdh=%d, rdt=%d\n",rdq[curr].desc_status,curr ,RDH,RDT);
  	
 
- 	while(	rdq[ curr ].desc_status !=0 ){
 		// clear the current descriptor's status 
 		rdq[ curr ].desc_status = 0;
 		rdq[ curr ].desc_errors = 0;
@@ -540,82 +524,9 @@ void my_rx_handler( unsigned long data )
 
 		// now hand over the socket-buffer to the kernel
 		netif_rx( skb );
-	}
 
 } 
 
-
-void my_rx_handler_( struct net_device *dev )
-{ 
-	//--------------------------------------------------------------
-	// This function is scheduled by our driver's interrupt-handler
-	// whenever the controller has received some new packets. 
-	//-------------------------------------------------------------- 
-
-//	struct net_device	*dev = (struct net_device*)data;
-	MY_DRIVERDATA	*mdp = netdev_priv (dev);	
-	RX_DESCRIPTOR		*rdq = (RX_DESCRIPTOR*)mdp->rxring;
-	unsigned int		curr = mdp->rxnext;
-	void			*src = phys_to_virt( rdq[ curr ].base_address );
-	int			len = rdq[ curr ].packet_length;
-	struct sk_buff		*skb = dev_alloc_skb( len + NET_IP_ALIGN );
-	unsigned int pkt_cnt=0;
-	int rxtail;
-
-
-	unsigned long flags;
-
-	unsigned int RDT= ioread32(io+E1000_RDT);
-	unsigned int RDH= ioread32(io+E1000_RDH);
-	printk("rx_handler is called\n");
-	/*	
-		while(	rdq[ curr ].desc_status !=0 ){
-		printk("rx_handler is called,status=%d, curr=%d,rdh=%d, rdt=%d\n",rdq[curr].desc_status,curr ,RDH,RDT);
-		curr = (++curr) % N_RX_DESC;
-
-		}
-		curr=mdp->rxnext;
-		*/
-	//spin_lock_irqsave(&mdp->rx_lock, flags);
-	while( curr !=RDH ){
-
-		// clear the current descriptor's status 
-		printk("rx_handler is called,status=%d, curr=%d,rdh=%d, rdt=%d\n",rdq[curr].desc_status,curr ,RDH,RDT);
-		rdq[ curr ].desc_status = 0;
-		rdq[ curr ].desc_errors = 0;
-
-		// allocate a new socket-buffer
-		if ( !skb ) { dev->stats.rx_dropped += 1; return; }
-
-		// copy received packet-data into this socket-buffer
-		memcpy( skb_put( skb, len ), src, len );
-
-		// adjust the socket-buffer's parameters
-		skb->dev = dev;
-		skb->protocol = eth_type_trans( skb, dev );
-		skb->ip_summed = CHECKSUM_NONE;
-
-		// advance our driver's 'rxnext' index 
-		curr++;
-		curr = curr % N_RX_DESC;
-
-		// now hand over the socket-buffer to the kernel
-		netif_rx( skb );
-
-		// update the 'net_device' statistics
-		dev->stats.rx_packets += 1;
-		dev->stats.rx_bytes += len;
-		/*if(curr== RDH ){
-			break;
- 		}*/
-	}
-	mdp->rxnext=curr;
-	// record the timestamp
-	dev->last_rx = jiffies;
-	//spin_unlock_irqrestore(&mdp->rx_lock, flags);
-
-
-} 
 
 
 
@@ -630,9 +541,7 @@ irqreturn_t my_isr( int irq, void *dev_id )
 	static int	reps = 0;
 	unsigned long flags;
 	unsigned int		intr_cause = ioread32( io + E1000_ICR );
-	printk("my isr\n");	
-//	iowrite32( 0xFFFFFFFF ,io + E1000_IMC );
-//	spin_lock_irqsave(&mdp->rx_lock, flags);
+	
 	if ( intr_cause == 0 ) return IRQ_NONE;
 
 	//	printk( "NIC2 %-2d  cause=%08X  ", ++reps, intr_cause );
@@ -656,17 +565,13 @@ irqreturn_t my_isr( int irq, void *dev_id )
 	}
 	// schedule our interrupt-handler's 'bottom-half'
 	if ( intr_cause & (1<<7) ){
-		my_rx_handler_( dev );
-		//tasklet_schedule( &mdp->rx_tasklet );
+		tasklet_schedule( &mdp->rx_tasklet );
 	}
 
 
-//	spin_unlock_irqrestore(&mdp->rx_lock, flags);
-
-	
 	// clear these interrupts
-//	ioread32( io + E1000_ICR ); // read this reg bit, the bit is cleared
-//	iowrite32( INTR_MASK, io + E1000_IMS );
+	intr_cause=0;
+	iowrite32( intr_cause, io + E1000_ICR );
 	
 	return	IRQ_HANDLED;
 }   
