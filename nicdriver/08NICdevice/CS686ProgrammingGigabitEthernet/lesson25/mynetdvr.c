@@ -13,6 +13,7 @@
 #include <linux/module.h>	// for init_module()
 #include <linux/etherdevice.h>	// for alloc_etherdev() 
 #include <linux/interrupt.h>	// for request_irq()
+#include <asm/irq.h>	// for request_irq()
 #include <linux/proc_fs.h>	// for create_proc_info_entry()
 #include <linux/pci.h>		// for pci_get_device()
 
@@ -21,8 +22,8 @@
 //#define DEVICE_ID	0x10B9	// 82572EI controller
 #define DEVICE_ID	0x100F	// 82572EM controller
 #define INTR_MASK   0xFFFFFFFF	// nic interrupt mask
-#define N_RX_DESC	   32	// number of RX Descriptors
-#define N_TX_DESC	   32	// number of TX Descriptors
+#define N_RX_DESC	   128	// number of RX Descriptors
+#define N_TX_DESC	   128	// number of TX Descriptors
 #define RX_BUFSIZ	  2048	// size of RX packet-buffer
 #define TX_BUFSIZ	  1536	// size of TX packet-buffer
 #define RX_MEMLEN	(RX_BUFSIZ + 16)*N_RX_DESC
@@ -51,10 +52,10 @@ typedef struct	{
 		unsigned char		desc_status;
 		unsigned char		cksum_origin;
 		unsigned short		special_info;
-		}__attribute__((packed)) TX_DESCRIPTOR;
+ 		}__attribute__((packed)) TX_DESCRIPTOR;
 
 
-typedef struct	{
+typedef struct{
 		RX_DESCRIPTOR	rxring[ N_RX_DESC ];		
 		TX_DESCRIPTOR	txring[ N_TX_DESC ];
 		RX_DESCRIPTOR 	**rx_virt_addr;
@@ -62,7 +63,7 @@ typedef struct	{
 		unsigned char	txbuff[ N_TX_DESC * TX_BUFSIZ ];
 		unsigned int	rxnext;
 		struct tasklet_struct	rx_tasklet;
-
+		spinlock_t mylock;
 		} MY_DRIVERDATA;
 
 
@@ -98,7 +99,7 @@ enum 	{
     E1000_RAL	= 0x5400,	// Receive-address Array
     E1000_RAH	= 0x5404,	// Receive-address Array
 	E1000_VFTA	= 0x5600,	// VLAN Filter Table Array
-	};
+ 	};
 
 
 
@@ -120,7 +121,7 @@ MODULE_LICENSE("GPL");
 static struct file_operations my_proc= {
     .owner = THIS_MODULE,
     .read= my_get_info
-};
+}; 
 
 // global variables
 char modname[] = "mynetdvr";
@@ -135,7 +136,7 @@ struct net_device_ops	my_ops = {
 				 ndo_open:		my_open,
 				 ndo_stop:		my_stop,
 				 ndo_start_xmit:	my_hard_start_xmit,
-				 };
+	 			 };
 
 
 int my_get_mac(void){
@@ -371,6 +372,9 @@ int my_open( struct net_device *dev )
 	if ( request_irq( i, my_isr, IRQF_SHARED, dev->name, dev ) < 0 )
 		return -EBUSY;
 
+
+	spin_lock_init(& mdp->mylock );
+
 	// unmask interrupts
 	ioread32( io + E1000_ICR );
 	iowrite32( INTR_MASK, io + E1000_IMS );
@@ -382,12 +386,12 @@ int my_open( struct net_device *dev )
 	// start the transmit engine
 	iowrite32( ioread32( io + E1000_TCTL ) | (1<<1), io + E1000_TCTL );
 	
-	printk("txdescaddr=%x\n ",txdescaddr);
-	printk("rxdescaddr=%x\n ",rxdescaddr);
+	//printk("txdescaddr=%x\n ",txdescaddr);
+	//printk("rxdescaddr=%x\n ",rxdescaddr);
 	
 	netif_start_queue( dev );
 	return	0;  // SUCCESS
- }
+  }
 
 
 int my_stop( struct net_device *dev )
@@ -413,6 +417,8 @@ int my_stop( struct net_device *dev )
 	// stop our tasklet and the network interface queue
 	//tasklet_kill( &mdp->rx_tasklet );
 	netif_stop_queue( dev );
+
+	
 	return	0;  // SUCCESS
 } 
 
@@ -436,7 +442,9 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 	unsigned char	*dst ;
 	
 	unsigned short	len;
+	unsigned long flags;
 	
+	spin_lock_irqsave(&mdp->mylock, flags);
 	txq= mdp->txring;
 	curr= ioread32( io + E1000_TDT );
 	next= (1 + curr) % N_TX_DESC;
@@ -467,6 +475,7 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 	dev->stats.tx_packets += 1;
 	dev->stats.tx_bytes += len;
 
+	spin_unlock_irqrestore(&mdp->mylock, flags);
 	// it is essential to free the socket-buffer structure
 	dev_kfree_skb( skb );
 
@@ -485,9 +494,9 @@ void my_rx_handler( unsigned long data )
 	MY_DRIVERDATA	*mdp = netdev_priv (dev);	
 	RX_DESCRIPTOR		*rdq = (RX_DESCRIPTOR*)mdp->rxring;
 	unsigned int		curr = mdp->rxnext;
-	void			*src = phys_to_virt( rdq[ curr ].base_address );
-	int			len = rdq[ curr ].packet_length;
-	struct sk_buff		*skb = dev_alloc_skb( len + NET_IP_ALIGN );
+	void			*src;
+	int			len;
+	struct sk_buff		*skb ; 
 
 	int rxtail;
 
@@ -495,7 +504,11 @@ void my_rx_handler( unsigned long data )
 	unsigned int RDH= ioread32(io+E1000_RDH);
 	//printk("rx_handler is called,status=%d, curr=%d,rdh=%d, rdt=%d\n",rdq[curr].desc_status,curr ,RDH,RDT);
  	
-
+ 	while(curr!=RDH){
+		src = phys_to_virt( rdq[ curr ].base_address );
+		len = rdq[ curr ].packet_length;
+		skb = dev_alloc_skb( len + NET_IP_ALIGN );
+		
 		// clear the current descriptor's status 
 		rdq[ curr ].desc_status = 0;
 		rdq[ curr ].desc_errors = 0;
@@ -525,7 +538,8 @@ void my_rx_handler( unsigned long data )
 		// now hand over the socket-buffer to the kernel
 		netif_rx( skb );
 
-} 
+}} 
+
 
 
 
@@ -541,16 +555,22 @@ irqreturn_t my_isr( int irq, void *dev_id )
 	static int	reps = 0;
 	unsigned long flags;
 	unsigned int		intr_cause = ioread32( io + E1000_ICR );
-	
+
+
+	//disable interrupt
+	//iowrite32( 0xFFFFFFFF, io + E1000_IMC );
+
+
+	spin_lock_irqsave(&mdp->mylock, flags);
 	if ( intr_cause == 0 ) return IRQ_NONE;
 
-	//	printk( "NIC2 %-2d  cause=%08X  ", ++reps, intr_cause );
+//		printk( "NIC2 %-2d  cause=%08X  ", ++reps, intr_cause );
 	//	if ( intr_cause & (1<<0) ) printk( "TXDW " );
 	//	if ( intr_cause & (1<<1) ) printk( "TXQE " );
 	//	if ( intr_cause & (1<<2) ) printk( "LC " );
-	if ( intr_cause & (1<<4) ) printk( "RXDMT0 " );
+//	if ( intr_cause & (1<<4) ) printk( "RXDMT0 " );
 	//	if ( intr_cause & (1<<6) ) printk( "RXO " );
-	if ( intr_cause & (1<<7) ) printk( "RXT0 " );
+//	if ( intr_cause & (1<<7) ) printk( "RXT0 " );
 	//	if ( intr_cause & (1<<9) ) printk( "MDAC " );
 	//	if ( intr_cause & (1<<15) ) printk( "TXDLOW " );
 	//	if ( intr_cause & (1<<16) ) printk( "SRPD " );
@@ -562,9 +582,9 @@ irqreturn_t my_isr( int irq, void *dev_id )
 		int	rxtail = ioread32( io + E1000_RDT );
 		rxtail = ( N_RX_DESC/8 + rxtail) % N_RX_DESC;
 		iowrite32( rxtail, io + E1000_RDT );
-	}
+	} 
 	// schedule our interrupt-handler's 'bottom-half'
-	if ( intr_cause & (1<<7) ){
+	 if ( intr_cause & (1<<7) ){
 		tasklet_schedule( &mdp->rx_tasklet );
 	}
 
@@ -572,9 +592,14 @@ irqreturn_t my_isr( int irq, void *dev_id )
 	// clear these interrupts
 	intr_cause=0;
 	iowrite32( intr_cause, io + E1000_ICR );
+		
+	//enable interrupt
+	//iowrite32( 0xFFFFFFFF, io + E1000_IMS );
+	
+	spin_unlock_irqrestore(&mdp->mylock, flags);
 	
 	return	IRQ_HANDLED;
-}   
+}    
 
 
 
