@@ -16,4 +16,7 @@ dynamic:
 	gcc -c -fPIC -o libmyadd.o libmyadd.c
 	gcc -s -shared -o libmyadd.so libmyadd.o
 	gcc ${APP}.c -DIMPLICITDYNAMIC -I. -L. -lmyadd -o ${APP}-implicit-dynamic
-	
+
+clean:
+	rm -f ${APP}static ${APP}-explicit-dynamic ${APP}-implicit-dynamic *.o *.a *.so
+
