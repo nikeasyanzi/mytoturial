@@ -64,12 +64,8 @@ typedef struct	{
 		unsigned char	txbuff[ N_TX_DESC * TX_BUFSIZ ];
 		unsigned int	rxnext;
 		struct tasklet_struct	rx_tasklet;
-<<<<<<< Updated upstream
-
-=======
 		struct napi_struct mynapi; 
 		spinlock_t mylock;
->>>>>>> Stashed changes
 		} MY_DRIVERDATA;
 
 
@@ -138,15 +134,12 @@ void		*io;
 struct net_device  *my_netdev;
 
 
-
-
 struct net_device_ops	my_ops = {
 				 ndo_open:		my_open,
 				 ndo_stop:		my_stop,
 				 ndo_start_xmit:	my_hard_start_xmit,
 				 };
 
-};
 
 int my_get_mac(void){
 
@@ -449,11 +442,7 @@ int my_stop( struct net_device *dev )
 
 #endif 
 	netif_stop_queue( dev );
-<<<<<<< Updated upstream
-=======
 
-
->>>>>>> Stashed changes
 	return	0;  // SUCCESS
 } 
 
@@ -477,15 +466,10 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 	unsigned char	*dst ;
 
 	unsigned short	len;
-<<<<<<< Updated upstream
-	
-=======
 	unsigned long flags;
 
 	spin_lock_irqsave(&mdp->mylock, flags);
 
-
->>>>>>> Stashed changes
 	txq= mdp->txring;
 	curr= ioread32( io + E1000_TDT );
 	next= (1 + curr) % N_TX_DESC;
@@ -544,15 +528,11 @@ void my_rx_handler( unsigned long data )
 	unsigned int RDT= ioread32(io+E1000_RDT);
 	unsigned int RDH= ioread32(io+E1000_RDH);
 	//printk("rx_handler is called,status=%d, curr=%d,rdh=%d, rdt=%d\n",rdq[curr].desc_status,curr ,RDH,RDT);
-<<<<<<< Updated upstream
- 	
-=======
 
  	while(curr!=RDH){
 		src = phys_to_virt( rdq[ curr ].base_address );
 		len = rdq[ curr ].packet_length;
 		skb = dev_alloc_skb( len + NET_IP_ALIGN );
->>>>>>> Stashed changes
 
 		// clear the current descriptor's status 
 		rdq[ curr ].desc_status = 0;
@@ -582,7 +562,6 @@ void my_rx_handler( unsigned long data )
 
 		// now hand over the socket-buffer to the kernel
 		netif_rx( skb );
-	}
 }  
 
 
@@ -691,12 +670,6 @@ irqreturn_t my_isr( int irq, void *dev_id )
 		int	rxtail = ioread32( io + E1000_RDT );
 		rxtail = ( N_RX_DESC/8 + rxtail) % N_RX_DESC;
 		iowrite32( rxtail, io + E1000_RDT );
-<<<<<<< Updated upstream
-	}
-	// schedule our interrupt-handler's 'bottom-half'
-	if ( intr_cause & (1<<7) ){
-=======
- 	} 
  	// schedule our interrupt-handler's 'bottom-half'
  	if ( intr_cause & (1<<7) ){
 
@@ -708,7 +681,6 @@ irqreturn_t my_isr( int irq, void *dev_id )
 		//enable RXT0 interrupt
 		iowrite32(0x0000000080,io+E1000_IMS);
 #else
->>>>>>> Stashed changes
 		tasklet_schedule( &mdp->rx_tasklet );
 #endif
 
