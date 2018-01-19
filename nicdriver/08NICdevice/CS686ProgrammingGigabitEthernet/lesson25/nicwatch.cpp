@@ -69,7 +69,7 @@ void display_packet( char *buf, int n, int t )
 {  
 	unsigned char	ch;
 
-  	if(t&display_type==0){
+  //	if(t&display_type==0){
 	printf( "\npacket #%d ", ++pkt_num );
 	printf( " (%s) ", pktype[ t & 7 ] );
 	for (int i = 0; i < n; i+=16)
@@ -90,7 +90,7 @@ void display_packet( char *buf, int n, int t )
  		}
 	printf( "\n%d bytes transferred\n-------\n", n );
 
-}
+//}
 }
 
 

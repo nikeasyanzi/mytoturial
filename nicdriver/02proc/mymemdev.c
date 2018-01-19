@@ -10,10 +10,13 @@
 #define PROC_NAME "mymemdev"
 #define PROCFS_MAX_SIZE 2048
 
-char *proc_msg;
-int proc_buf_length=0;
+static char *proc_msg;
+static int proc_buf_length=0;
 
 static ssize_t my_proc_write(struct file *fp, const char *buf, size_t len,loff_t *off) {
+    
+    
+    printk("len=%d off=%d",len, *off);
     if(len>PROCFS_MAX_SIZE) {
         return -EFAULT;
     }
@@ -48,8 +51,10 @@ static struct file_operations my_file_ops = {
  * This function is called when the module is loaded
  *
   */
-int init_module(void)
+int my_init(void)
 {
+    
+    printk("init\n");
     struct proc_dir_entry *entry;
     entry = proc_create(PROC_NAME, 0, NULL, &my_file_ops);
 
@@ -58,17 +63,21 @@ int init_module(void)
     }
 
     proc_msg=(char * )vmalloc(PROCFS_MAX_SIZE);
-
+	memset(proc_msg,'\0',PROCFS_MAX_SIZE);
     return 0;
 }
 /**
  * This function is called when the module is unloaded.
  *
  */
-void cleanup_module(void)
+void my_exit(void)
 {
     remove_proc_entry(PROC_NAME, NULL);
 }
 
 MODULE_AUTHOR("Craig Yang");
 MODULE_LICENSE("GPL");
+module_init( my_init );
+module_exit( my_exit);
+
+

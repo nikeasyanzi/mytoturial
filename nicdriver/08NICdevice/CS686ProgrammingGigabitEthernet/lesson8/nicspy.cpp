@@ -18,7 +18,7 @@
 #include <sys/ioctl.h>	// for ioctl()
 
 char devname[] = "/dev/nic";
-unsigned char	hostname[ 64 ], mac[ 6 ], buf[ 0x600 ]; 
+unsigned char	hostname[ 64 ], mac[ 6 ], buf[ 0x60000 ]; 
 
 int main( int argc, char **argv )
 {

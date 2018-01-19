@@ -7,7 +7,7 @@ ls -al /proc/mymemdev
 echo Now you see the /proc/mymemdev is created after the module is inserted!!!
 set -x
 echo 123 > /proc/mymemdev
-echo tteesstt > /proc/mymemdev
+echo test > /proc/mymemdev
 cat /proc/mymemdev
 echo aaa > /proc/mymemdev
 cat /proc/mymemdev

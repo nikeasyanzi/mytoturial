@@ -23,8 +23,8 @@
 //#define DEVICE_ID	0x109A	// 82573L controller
 //#define DEVICE_ID	0x10B9	// 82572EI controller
 #define DEVICE_ID	0x100F	// 82545EM controller
-#define N_RX_DESC	16	// number of RX descriptors
-#define N_TX_DESC	16	// number of TX descriptors
+#define N_RX_DESC	64	// number of RX descriptors
+#define N_TX_DESC	64	// number of TX descriptors
 #define RX_BUFSIZ	2048	// size of RX packet-buffer
 #define TX_BUFSIZ	1536	// size of TX packet-buffer
 #define RX_MEMLEN	(RX_BUFSIZ + 16)*N_RX_DESC
@@ -124,8 +124,7 @@ ssize_t my_read( struct file *file, char *buf, size_t len, loff_t *pos );
 ssize_t my_write( struct file *file, const char *buf, size_t len, loff_t *pos );
 static ssize_t my_ioctl(struct file *filp, unsigned int cmd, unsigned long args);
 static int my_get_mac(void);
-
-
+ssize_t my_show_reg(void );
 
 static struct file_operations my_proc_rxinfo = {
     .owner = THIS_MODULE,
@@ -143,6 +142,44 @@ struct file_operations my_fops= {
 				  .write=my_write,
 				  .unlocked_ioctl=my_ioctl,
 				  };
+
+ssize_t my_show_reg(void ){
+	printk("\n my show reg:");
+//	printk("\n E1000_CTRL	=%08X ",    ioread32(io+ E1000_CTRL	   ));      // Device Control
+//	printk("E1000_STATUS	=%08X ",ioread32(io+  E1000_STATUS ));   	// Device Status
+//	printk("E1000_CTRL_EXT %08X ",  ioread32(io+  E1000_CTRL_EXT)); 	// Device Control Extended
+//	printk("E1000_VET	= %08X ",   ioread32(io+  E1000_VET	));	// VLAN Ether Type
+//	printk("E1000_ICR	= %08X ",   ioread32(io+  E1000_ICR	));	// Interrupt Cause Read
+//	printk("E1000_ICS	= %08X ",   ioread32(io+  E1000_ICS	));	// Interrupt Cause Set
+//	printk("E1000_IMS	= %08X ",   ioread32(io+  E1000_IMS	));	// Interrupt Mask Set
+//	printk("E1000_IMC	= %08X ",   ioread32(io+  E1000_IMC	));	// Interrupt Mask Clear
+//	printk("E1000_RCTL	=%08X ",    ioread32(io+  E1000_RCTL));   	// Receive Control
+//	printk("E1000_TCTL	=%08X ",    ioread32(io+  E1000_TCTL));   	// Transmit Control
+//	printk("E1000_RDBAL	=%08X ",    ioread32(io+  E1000_RDBAL));  	// Receive Descriptor Base Addr Low
+//	printk("E1000_RDBAH	=%08X ",    ioread32(io+  E1000_RDBAH));  	// Receive Descriptor Base Addr High
+	printk("E1000_RDLEN	=%08X ",    ioread32(io+  E1000_RDLEN));  	// Receive Descriptor Length
+	printk(" E1000_RDH	= %08X ",   ioread32(io+  E1000_RDH	));   	// Receive Descriptor Head
+	printk(" E1000_RDT	= %08X ",   ioread32(io+  E1000_RDT	));   	// Receive Descriptor Tail
+//	printk("E1000_RXDCTL	=%08X ",ioread32(io+  E1000_RXDCTL)); 	// Receive Descriptor Control
+//	printk("E1000_TDBAL	=%08X ",    ioread32(io+  E1000_TDBAL));  	// Transmit Descriptor Base Addr Low
+//	printk("E1000_TDBAH	=%08X ",    ioread32(io+  E1000_TDBAH));  	// Transmit Descriptor Base Addr High
+//	printk("E1000_TDLEN	=%08X ",    ioread32(io+  E1000_TDLEN));  	// Transmit Descriptor Length
+//	printk("E1000_TDH	= %08X ",   ioread32(io+  E1000_TDH	));   	// Transmit Descriptor Head
+//	printk("E1000_TDT	= %08X ",   ioread32(io+  E1000_TDT ));   	// Transmit Descriptor Tail
+//	printk("E1000_TXDCTL	=%08X ",ioread32(io+  E1000_TXDCTL)); 	// Transmit Descriptor Control
+//	printk("E1000_CRCERRS	=%08X ",ioread32(io+  E1000_CRCERRS));	// CRC Errors
+//	printk("E1000_TPR	= %08X ",   ioread32(io+  E1000_TPR	));   	// Total Packets Received
+//	printk("E1000_TPT	= %08X ",   ioread32(io+  E1000_TPT	));   	// Total Packets Transmitted
+//	printk("E1000_RA	= %08X ",   ioread32(io+ E1000_RA  ));   	// Receive-filter Array
+//  printk("E1000_RAL	= %08X ",   ioread32(io+  E1000_RAL));   	// Receive-address Array
+//    printk("E1000_RAH	= %08X ",   ioread32(io+  E1000_RAH	));   	// Receive-address Array
+//	printk("E1000_VFTA	=%08X ",    ioread32(io+  E1000_VFTA));   	// VLAN Filter Table Array
+	
+	printk("\n");
+		return	0;
+
+}
+
 ssize_t my_write( struct file *file, const char *buf, size_t len, loff_t *pos )
 {
 	int	txtail = ioread32( io + E1000_TDT );
@@ -221,6 +258,60 @@ static int my_get_mac(){
 	return 0;
 } 
 
+
+
+size_t my_read_org( struct file *file, char *buf, size_t len, loff_t *pos  )
+{
+	static int	rxhead = 0, pickup = 0; 
+	unsigned char	*cp = phys_to_virt( rxring[ rxhead  ].base_address  );
+	int		count, nbytes;
+
+	// sleep until the current descriptor has nonzero status
+	if (( pickup == 0  )&&( rxring[ rxhead  ].desc_status == 0  ))
+	{
+		if ( file->f_flags & O_NONBLOCK  ) return 0; 
+		printk( "NIC2 READ: going to sleep \n"  );
+		if ( wait_event_interruptible( wq_recv, 
+					rxring[ rxhead  ].desc_status )  ) return -EINTR;
+		printk( "NIC2 READ: waking up \n"  );
+	}
+
+	// Here we do not handle packets that exceed packet-buffer size
+	if ( ( rxring[ rxhead  ].desc_status & 3  ) == 1  ) // DD, ~EOP
+	{
+		printk( "NIC2 READ: Oversized packet dropped\n"  );
+		while ( ( rxring[ rxhead  ].desc_status & 3  ) == 1  )
+		{
+			rxring[ rxhead  ].desc_status = 0;
+			rxhead = (1 + rxhead) % N_RX_DESC;
+		}
+		rxring[ rxhead  ].desc_status = 0;
+		rxhead = (1 + rxhead) % N_RX_DESC;
+		pickup = 0;
+		return -EMSGSIZE;
+	}
+
+	// get the number of actual data-bytes in this packet
+	count = *(unsigned short*)(cp+14); 
+
+	// now we try to copy these data-bytes to the user's buffer
+	nbytes = (count > len + pickup) ? len : count - pickup;
+	if ( copy_to_user( buf, cp+HDR_BYTES+pickup, nbytes  )  ) return -EFAULT;
+	pickup += nbytes;
+
+	// if all packet-data was transferred, advance 'rxhead' index
+	if ( pickup >= count  )	
+	{
+		pickup = 0;
+		rxring[ rxhead  ].desc_status = 0;
+		rxhead = (1 + rxhead) % N_RX_DESC;
+	}
+
+	// tell the kernel how many bytes were transferred
+	return	nbytes;	
+}
+
+
 ssize_t my_read( struct file *file, char *buf, size_t len, loff_t *pos )
 {
 	static int	rxhead = 0, pickup = 0; 
@@ -229,28 +320,29 @@ ssize_t my_read( struct file *file, char *buf, size_t len, loff_t *pos )
 
 	// sleep until the current descriptor has nonzero status
 	if (( pickup == 0 )&&( rxring[ rxhead ].desc_status == 0 ))
-		{
+	{
 		if ( file->f_flags & O_NONBLOCK ) return 0; 
 		printk( "NIC2 READ: going to sleep \n" );
 		if ( wait_event_interruptible( wq_recv, 
-			rxring[ rxhead ].desc_status ) ) return -EINTR;
+					rxring[ rxhead ].desc_status ) ) return -EINTR;
 		printk( "NIC2 READ: waking up \n" );
-		}
+	}
 
 	// Here we do not handle packets that exceed packet-buffer size
 	if ( ( rxring[ rxhead ].desc_status & 3 ) == 1 ) // DD, ~EOP
-		{
+	{
 		printk( "NIC2 READ: Oversized packet dropped\n" );
 		while ( ( rxring[ rxhead ].desc_status & 3 ) == 1 )
-			{
+		{
 			rxring[ rxhead ].desc_status = 0;
 			rxhead = (1 + rxhead) % N_RX_DESC;
-			}
+		}
 		rxring[ rxhead ].desc_status = 0;
 		rxhead = (1 + rxhead) % N_RX_DESC;
 		pickup = 0;
+		//		iowrite32(rxhead,io+E1000_RDH);
 		return -EMSGSIZE;
-		}
+	}
 
 	// get the number of actual data-bytes in this packet
 	count = *(unsigned short*)(cp+14); 
@@ -262,13 +354,16 @@ ssize_t my_read( struct file *file, char *buf, size_t len, loff_t *pos )
 
 	// if all packet-data was transferred, advance 'rxhead' index
 	if ( pickup >= count )	
-		{
+	{
 		pickup = 0;
 		rxring[ rxhead ].desc_status = 0;
 		rxhead = (1 + rxhead) % N_RX_DESC;
-		}
+		//		iowrite32(rxhead,io+E1000_RDH);
+	}
 
 	// tell the kernel how many bytes were transferred
+
+
 	return	nbytes;	
 }
 
@@ -283,7 +378,7 @@ static ssize_t my_ioctl(struct file *filp, unsigned int cmd, unsigned long args)
 	unsigned int 	vid, shift, index, mask;
 
 	switch ( cmd )
-		{
+	{
 		case 0:	// Set this driver's current destination MAC-address
 			if ( copy_from_user( dstn, usr, 6 ) ) return -EFAULT;	
 			return	0;	// SUCCESS
@@ -310,12 +405,12 @@ static ssize_t my_ioctl(struct file *filp, unsigned int cmd, unsigned long args)
 			iowrite32( mask, io + E1000_VFTA + 4*index ); 
 			vlan_id = (vlan_id & 0xF000)|(vid & 0x0FFF); 		
 			return	0;	// SUCCESS
-	
+
 		case 3:	// Get this driver's current VLAN identification
 			vid = (vlan_id & 0x0FFF);
 			if ( copy_to_user( usr, &vid, 2 ) ) return -EFAULT; 
 			return	0;	// SUCCESS
-		}
+	}
 	return	-EINVAL;
 }
 
@@ -353,24 +448,26 @@ irqreturn_t my_isr( int irq, void *dev_id )
 	printk( "\n" );	
 
 	if ( intr_cause & (1<<4) ) 	// Rx-Descriptors Low
-		{
+	{
 		int	rxtail = ioread32( io + E1000_RDT );
 		rxtail = (8 + rxtail) % N_RX_DESC;
 		iowrite32( rxtail, io + E1000_RDT );
-		}
+		my_show_reg();
+	}
 
 	if ( intr_cause & (1<<0) )	// Tx-descriptor Written back
 		wake_up_interruptible( &wq_xmit );
 
-	if ( intr_cause & (1<<7) )	// Rx-descriptor Timer expired
+	if ( intr_cause & (1<<7) ){	// Rx-descriptor Timer expired
+		printk("rx interrupt\n");
+		my_show_reg();
 		wake_up_interruptible( &wq_recv );
-
+	}
 	iowrite32( intr_cause, io + E1000_ICR );
+	my_show_reg();
+
 	return	IRQ_HANDLED;
 }
-
-
-
 
 
 
@@ -387,11 +484,11 @@ static ssize_t my_get_info_rx(struct file *filp,char *buf,size_t count,loff_t *o
 	n_recv_packets += ioread32( io + E1000_TPR );
 	head = ioread32( io + E1000_RDH );
 	tail = ioread32( io + E1000_RDT );
-	
+
 	len += sprintf( buf+len, "\n Receive-Descriptor Buffer-Area " );
 	len += sprintf( buf+len, "(head=%d, tail=%d) \n\n", head, tail );
 	for (i = 0; i < N_RX_DESC; i++)
-		{
+	{
 		int	status = rxring[ i ].desc_status;
 		int	errors = rxring[ i ].desc_errors;
 		len += sprintf( buf+len, " #%-2d ", i );
@@ -416,7 +513,7 @@ static ssize_t my_get_info_rx(struct file *filp,char *buf,size_t count,loff_t *o
 		if ( errors & (1<<6) ) len += sprintf( buf+len, "IPE " );
 		if ( errors & (1<<7) ) len += sprintf( buf+len, "RXE " );
 		len += sprintf( buf+len, "\n" );
-		}
+	}
 	len += sprintf( buf+len, "\n" );
 	len += sprintf( buf+len, " packets_received = %d ", n_recv_packets );
 	len += sprintf( buf+len, "\n\n" );
@@ -444,11 +541,11 @@ static ssize_t my_get_info_tx(struct file *filp,char *buf,size_t count,loff_t *o
 	n_xmit_packets += ioread32( io + E1000_TPT );
 	head = ioread32( io + E1000_TDH );
 	tail = ioread32( io + E1000_TDT );
-	
+
 	len += sprintf( buf+len, "\n Transmit-Descriptor Buffer-Area " );
 	len += sprintf( buf+len, "(head=%d, tail=%d) \n\n", head, tail );
 	for (i = 0; i < N_TX_DESC; i++)
-		{
+	{
 		int	command = txring[ i ].desc_command;
 		int	status = txring[ i ].desc_status;
 		len += sprintf( buf+len, " #%-2d ", i );
@@ -472,7 +569,7 @@ static ssize_t my_get_info_tx(struct file *filp,char *buf,size_t count,loff_t *o
 		if ( command & (1<<6) ) len += sprintf( buf+len, "VLE " );
 		if ( command & (1<<7) ) len += sprintf( buf+len, "IDE " );
 		len += sprintf( buf+len, "\n" );
-		}
+	}
 	len += sprintf( buf+len, "\n" );
 	len += sprintf( buf+len, " packets_sent = %d ", n_xmit_packets );
 	len += sprintf( buf+len, "\n\n" );
@@ -486,6 +583,229 @@ static ssize_t my_get_info_tx(struct file *filp,char *buf,size_t count,loff_t *o
 
 
 
+
+
+
+
+
+
+static int nicsplit_initi_( void )
+{
+	int	i, dev_control, rx_control, tx_control;
+	unsigned int	rx_buf, tx_buf;
+	int rxdctl;
+	u16	pci_cmd;
+
+	printk( "<1>\nInstalling \'%s\' module\n", modname );
+
+	devp = pci_get_device( VENDOR_ID, DEVICE_ID, NULL );
+	if ( !devp ) return -ENODEV;
+
+	mmio_base = pci_resource_start( devp, 0 );
+	mmio_size = pci_resource_len( devp, 0 );
+	io = ioremap_nocache( mmio_base, mmio_size );
+	if ( !io ) return -ENOSPC;
+
+	kmem = kzalloc( KMEM_SIZE, GFP_KERNEL );
+	if ( !kmem ) { iounmap( io ); return -ENOMEM; }
+	kmem_phys = virt_to_phys( kmem );
+
+	memset( dstn, 0xFF, 6 );
+	//memcpy( mac, io + E1000_RA, 6 );
+	my_get_mac();
+	for (i = 0; i < 0x200; i+=4) ioread32( io + E1000_CRCERRS + i );	
+	for (i = 0; i < 0x200; i+=4) iowrite32( 0, io + E1000_VFTA + i );
+
+	pci_read_config_word( devp, 4, &pci_cmd );
+	pci_cmd |= (1<<2);
+	pci_write_config_word( devp, 4, pci_cmd );
+
+	rxring = phys_to_virt( kmem_phys );
+	rx_buf = virt_to_phys( rxring ) + (16 * N_RX_DESC);
+	for (i = 0; i < N_RX_DESC; i++)
+	{
+		rxring[ i ].base_address = rx_buf + i*RX_BUFSIZ;
+		rxring[ i ].packet_length = 0;
+		rxring[ i ].packet_chksum = 0;
+		rxring[ i ].desc_status = 0;
+		rxring[ i ].desc_errors = 0;
+		rxring[ i ].vlan_tag = 0;	
+	}
+
+	init_waitqueue_head( &wq_recv );
+
+
+
+
+
+	txring = phys_to_virt( kmem_phys + RX_MEMLEN );
+	tx_buf = virt_to_phys( txring ) + (16 * N_TX_DESC);
+	for (i = 0; i < N_TX_DESC; i++)
+	{
+		txring[ i ].base_address = tx_buf + i*TX_BUFSIZ;
+		txring[ i ].packet_length = 0;
+		txring[ i ].cksum_offset = 0;
+		txring[ i ].cksum_origin = 0;
+		txring[ i ].desc_status = (1<<0);	// DD
+		txring[ i ].desc_command = 0; //(1<<3);	// RS
+		txring[ i ].special_info = 0;
+	}
+
+	init_waitqueue_head( &wq_xmit );
+
+
+
+
+	//dev_control |= (1<<0);	// FD-bit (Full Duplex)
+	dev_control |= 1;	// FD-bit (Full Duplex)
+	dev_control |= (0<<2);	// GIOMD-bit (GIO Master Disable)
+	//dev_control |= (1<<3);	// LRST-bit (Link Reset)
+	dev_control |= (0<<3);	// LRST-bit (Link Reset)
+
+	dev_control |= (1<<5);	// ASDE-bit (auto Speed detection enable)	
+
+	dev_control |= (1<<6);	// SLU-bit (Set Link Up)	
+	dev_control |= (2<<8);	// SPEED=2 (1000Mbps)
+	dev_control |= (1<<11);	// FRCSPD-bit (Force Speed)
+	dev_control |= (0<<12);	// FRCDPLX-bit (Force Duplex)
+	dev_control |= (0<<20);	// ADVD3WUC-bit (Advertise D3 Wake Up Cap)
+	dev_control |= (1<<26);	// RST-bit (Device Reset)
+	dev_control |= (0<<27);	// RFCE-bit (Receive Flow Control Enable)
+	dev_control |= (0<<28);	// TFCE-bit (Transmit Flow Control Enable) 
+	dev_control |= (1<<30);	// VME-bit (VLAN Mode Enable) 
+	dev_control |= (0<<31);	// PHY_RST-bit (PHY Reset)
+
+	/*dev_control = 0;
+	  dev_control |= (1<<0);	// FD-bit (Full Duplex)
+	  dev_control |= (0<<2);	// GIOMD-bit (GIO Master Disable)
+	  dev_control |= (1<<3);	// LRST-bit (Link Reset)
+	  dev_control |= (1<<6);	// SLU-bit (Set Link Up)	
+	  dev_control |= (2<<8);	// SPEED=2 (1000Mbps)
+	  dev_control |= (1<<11);	// FRCSPD-bit (Force Speed)
+	  dev_control |= (0<<12);	// FRCDPLX-bit (Force Duplex)
+	  dev_control |= (0<<20);	// ADVD3WUC-bit (Advertise D3 Wake Up Cap)
+	  dev_control |= (1<<26);	// RST-bit (Device Reset)
+	  dev_control |= (0<<27);	// RFCE-bit (Receive Flow Control Enable)
+	  dev_control |= (0<<28);	// TFCE-bit (Transmit Flow Control Enable) 
+	  dev_control |= (1<<30);	// VME-bit (VLAN Mode Enable) 
+	  dev_control |= (0<<31);	// PHY_RST-bit (PHY Reset)
+	  */
+	iowrite32( 0x00000000, io + E1000_STATUS );	// Device Status 
+	iowrite32( 0xFFFFFFFF, io + E1000_IMC );	// Interrupt Mask Clear
+	iowrite32( dev_control, io + E1000_CTRL );	// Device Control
+	dev_control &= ~(1<<26);  	// clear RST-bit (Device Reset)
+	iowrite32( dev_control, io + E1000_CTRL );	// Device Control
+	udelay( 10000 );
+	while ( (ioread32( io + E1000_STATUS ) & 3) != 3 );
+
+	iowrite32( 0x00008100, io + E1000_VET );
+	iowrite32( 1 << (vlan_id & 0x1F), io + E1000_VFTA + (vlan_id>>5)*4 );
+
+
+	iowrite32( 0x001401C0, io + E1000_CTRL_EXT );
+
+	i = devp->irq;
+	if ( request_irq( i, my_isr, IRQF_SHARED, modname, &modname ) < 0 )
+	{ kfree( kmem ); iounmap( io ); return -EBUSY; }
+	iowrite32(  INTR_MASK, io + E1000_IMS );
+
+
+
+
+	rx_control = 0;
+	rx_control |= (0<<1);	// EN-bit (Enable)
+	rx_control |= (1<<2);	// SBP-bit (Store Bad Packets)
+	rx_control |= (1<<3);	// UPE-bit (Unicast Promiscuous Enable)
+	rx_control |= (1<<4);	// MPE-bit (Multicase Promiscuous Enable)
+	rx_control |= (0<<5);	// LPE-bit (Long Packet Enable 1 for processing jumbo frame)
+	rx_control |= (0<<6);	// LBM=0 (LoopBack Mode off for normal operatio )
+	rx_control |= (3<<8);	// RDMTS=3 (Rx-Descriptor Min Thresh Size)
+	/*	Receive Descriptor Minimum Threshold Size
+		The corresponding interrupt ICR.RXDMT0 is set each time the 
+		fractional number of free descriptors becomes equal to RDMTS. 
+		The following table lists which fractional values correspond to 
+		RDMTS values. The size of the total receiver circular descriptor 
+		buffer is set by RDLEN. See Section 13.4.27 for details regarding 
+		RDLEN.
+		00b = Free Buffer threshold is set to 1/2 of RDLEN.
+		01b = Free Buffer threshold is set to 1/4 of RDLEN.
+		10b = Free Buffer threshold is set to 1/8 of RDLEN.
+		11b = Reserved.
+		*/
+	rx_control |= (0<<10);	// DTYPE=0 (Descriptor Type)
+	rx_control |= (0<<12);	// MO=0 (Multicast Offset)
+	rx_control |= (1<<15);	// BAM-bit (Broadcast Address Enable)
+	rx_control |= (0<<16);	// BSIZE=0 (Receive Buffer Size = 2048)
+	rx_control |= (1<<18);	// VLE-bit (VLAN Filter Enable)
+	rx_control |= (0<<19);	// CFIEN=0 (Canonical Form Indicator Enable)
+	rx_control |= (0<<20);	// CFI=0 (Canonical Form Indicator bit-value)
+	rx_control |= (0<<22);	// DPF-bit (Discard Pause Frames)
+	rx_control |= (1<<23);	// PMCF-bit (Pass MAC Control Frames)
+	rx_control |= (0<<25);	// BSEX-bit (Buffer Size Extension, set to 1, if buffer size is larger thant 2048 )
+	rx_control |= (1<<26);	// SECRC-bit (Strip Ethernet CRC prior to DMAing the receive packet to host memory )
+	rx_control |= (0<<27);	// FLEXBUF=0 (Flexible Buffer Size)	
+
+	iowrite32( rx_control, io + E1000_RCTL );	// Receive Control
+	rx_buf = virt_to_phys( rxring );
+	iowrite32(     rx_buf, io + E1000_RDBAL );
+	iowrite32( 0x00000000, io + E1000_RDBAH );
+	iowrite32( (16 * N_RX_DESC), io + E1000_RDLEN );
+
+
+	iowrite32( 0, io + E1000_RDH );
+	iowrite32( N_RX_DESC, io + E1000_RDT );
+
+	rxdctl=0;
+	rxdctl |= (1<<16);	// Write Back Threshold
+	/*		WTHRESH controls the write back of processed receive descriptors. 
+	 *		This threshold refers to the number of receive descriptors in the Ethernet controller’s on-chip buffer which areready to be written back to host memory. 
+	 In the absence of external events (explicit flushes), the write back occurs only after more than WTHRESH descriptors are available for write back. 
+	 WTHRESH must contain a non-zero value to take advantage of the write back bursting capabilities of the Ethernet controller.
+	 A value of 1b causes the descriptors to be written back as soon as one cache line is available. 
+	 A value of WTHRESH can be in 
+	 either cache line units, or based on number of descriptors based 
+	 on RXDCTL.GRAN. 
+	 */
+	rxdctl |= (1<<24);	//GRAN  
+	//	iowrite32( 0x01010000, io + E1000_RXDCTL );
+	iowrite32( rxdctl, io + E1000_RXDCTL );
+
+	rx_control |= (1<<1);
+	iowrite32( rx_control, io + E1000_RCTL );//enable after receive descriptor ring is initialized and sofrware is ready to process received packets
+
+
+
+	tx_control = 0;
+	tx_control |= (0<<1);	// EN-bit (Enable )
+	tx_control |= (1<<3);	// PSP-bit (Pad Short Packets) 
+	tx_control |= (15<<4);	// CT=15 (Collision Threshold)
+	tx_control |= (63<<12);	// COLD=63 (Collision Distance)
+	tx_control |= (0<<22);	// SWXOFF-bit (Software XOFF Transmit)
+	tx_control |= (1<<24);	// RTLC-bit (Re-Transmit on Late Collision)
+	tx_control |= (0<<25);	// UNORTX-bit (Underrun No Re-Transmit)
+	tx_control |= (0<<26);	// TXCSCMT=0 (TxDesc Minimum Threshold)
+	tx_control |= (0<<28);	// MULR-bit (Multiple Request Support)
+	iowrite32( tx_control, io + E1000_TCTL );	// Trandmit Control
+
+	tx_buf = virt_to_phys( txring );
+	iowrite32(     tx_buf, io + E1000_TDBAL );
+	iowrite32( 0x00000000, io + E1000_TDBAH );
+	iowrite32( 16 * N_TX_DESC, io + E1000_TDLEN );
+	iowrite32( 0x01010000, io + E1000_TXDCTL );
+	tx_control |= (1<<1);
+	iowrite32( tx_control, io + E1000_TCTL );
+
+	iowrite32( 0, io + E1000_TDH );
+	iowrite32( N_TX_DESC, io + E1000_TDT );
+
+
+	// trigger interrupt to give some RX-descriptors to the NIC
+	//	iowrite32( (1<<4), io + E1000_ICS );	// RXDMT0 
+
+	proc_create(PROC_RX_NAME, 0, NULL, &my_proc_rxinfo);
+	proc_create(PROC_TX_NAME, 0, NULL, &my_proc_txinfo);
+	return	register_chrdev( my_major, devname, &my_fops );
+}
 
 
 
@@ -513,8 +833,7 @@ static int __init nicsplit_init( void )
 	kmem_phys = virt_to_phys( kmem );
 
 	memset( dstn, 0xFF, 6 );
-	//memcpy( mac, io + E1000_RA, 6 );
-	my_get_mac();
+	memcpy( mac, io + E1000_RA, 6 );
 	for (i = 0; i < 0x200; i+=4) ioread32( io + E1000_CRCERRS + i );	
 	for (i = 0; i < 0x200; i+=4) iowrite32( 0, io + E1000_VFTA + i );
 
@@ -584,6 +903,22 @@ static int __init nicsplit_init( void )
 	rx_control |= (0<<5);	// LPE-bit (Long Packet Enable)
 	rx_control |= (0<<6);	// LBM=0 (LoopBack Mode off)
 	rx_control |= (3<<8);	// RDMTS=3 (Rx-Descriptor Min Thresh Size)
+
+
+
+	/*	Receive Descriptor Minimum Threshold Size
+		The corresponding interrupt ICR.RXDMT0 is set each time the 
+		fractional number of free descriptors becomes equal to RDMTS. 
+		The following table lists which fractional values correspond to 
+		RDMTS values. The size of the total receiver circular descriptor 
+		buffer is set by RDLEN. See Section 13.4.27 for details regarding 
+		RDLEN.
+		00b = Free Buffer threshold is set to 1/2 of RDLEN.
+		01b = Free Buffer threshold is set to 1/4 of RDLEN.
+		10b = Free Buffer threshold is set to 1/8 of RDLEN.
+	*/
+
+	
 	rx_control |= (0<<10);	// DTYPE=0 (Descriptor Type)
 	rx_control |= (0<<12);	// MO=0 (Multicast Offset)
 	rx_control |= (1<<15);	// BAM-bit (Broadcast Address Enable)
@@ -629,24 +964,18 @@ static int __init nicsplit_init( void )
 	iowrite32(     rx_buf, io + E1000_RDBAL );
 	iowrite32( 0x00000000, io + E1000_RDBAH );
 	iowrite32( 16 * N_RX_DESC, io + E1000_RDLEN );
+	//iowrite32( 0x01010000, io + E1000_RXDCTL );
 	iowrite32( 0x01010000, io + E1000_RXDCTL );
 	rx_control |= (1<<1);
 	iowrite32( rx_control, io + E1000_RCTL );
 
 	// trigger interrupt to give some RX-descriptors to the NIC
-	iowrite32( (1<<4), io + E1000_ICS );	// RXDMT0 
+	//iowrite32( (1<<4), io + E1000_ICS );	// RXDMT0 
+	proc_create(PROC_RX_NAME, 0, NULL, &my_proc_rxinfo);
+	proc_create(PROC_TX_NAME, 0, NULL, &my_proc_txinfo);
 
-    proc_create(PROC_RX_NAME, 0, NULL, &my_proc_rxinfo);
-    proc_create(PROC_TX_NAME, 0, NULL, &my_proc_txinfo);
 	return	register_chrdev( my_major, devname, &my_fops );
 }
-
-
-
-
-
-
-
 
 
 

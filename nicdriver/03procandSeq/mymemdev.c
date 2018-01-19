@@ -115,7 +115,7 @@ static struct file_operations my_file_ops = {
  * This function is called when the module is loaded
  *
  */ 
-int init_module(void) 
+int my_init(void) 
 {  
 	struct proc_dir_entry *entry;
 	entry = proc_create(PROC_NAME, 0, NULL, &my_file_ops);
@@ -130,10 +130,15 @@ int init_module(void)
  * This function is called when the module is unloaded.
  *
  */ 
-void cleanup_module(void) 
+void my_exit(void) 
 { 
 	remove_proc_entry(PROC_NAME, NULL);
 } 
 
 MODULE_AUTHOR("Craig Yang");
 MODULE_LICENSE("GPL");
+
+
+
+module_init( my_init  );
+module_exit( my_exit  );

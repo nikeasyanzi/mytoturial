@@ -33,7 +33,7 @@ static struct file_operations fops = {
 *  * This function is called when the module is loaded
 *   */
 
-int  init_module(void) {
+int  my_init(void) {
     int ret,cdev_ret;
     int counter;
     char tmp[512];
@@ -104,7 +104,7 @@ cdev_error:
 /* 
 *  * This function is called when the module is unloaded
 *    */
-void cleanup_module(void)
+void my_exit(void)
 { 
     int counter;
 
@@ -207,9 +207,9 @@ static ssize_t device_read(struct file *filp,   /* see include/linux/fs.h   */
  *    */
 static ssize_t
 device_write(struct file *filp, const char *buff, size_t len, loff_t * off) {
-    printk("dev_write\n");
 
     struct my_char_dev *dev=filp->private_data;
+    printk("dev_write\n");
 //	 down_interruptible(&(dev->sem));
     
     sprintf(dev->msg, "%s", buff, BUF_LEN);   // appending received string with its length
@@ -218,9 +218,13 @@ device_write(struct file *filp, const char *buff, size_t len, loff_t * off) {
     return len;
 }
 
+
+
+
+module_init( my_init  );
+module_exit( my_exit  );
+
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Craig Yang");	/* Who wrote this module? */
 MODULE_DESCRIPTION("udev");	/* What does this module do */
-//module_init(init_module);
-//module_exit(cleanup_module);
 
