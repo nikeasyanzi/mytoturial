@@ -1,2 +1,0 @@
-target remote 192.168.1.230:1234
-file ./lab4ioctlDev/app-mem

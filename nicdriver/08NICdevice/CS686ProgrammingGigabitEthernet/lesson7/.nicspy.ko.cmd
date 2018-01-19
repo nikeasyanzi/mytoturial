@@ -1,1 +1,0 @@
-cmd_/home/craigyang/mytoturial/nicdriver/08NICdevice/lesson7/nicspy.ko := ld -r -m elf_x86_64 -T ./scripts/module-common.lds --build-id  -o /home/craigyang/mytoturial/nicdriver/08NICdevice/lesson7/nicspy.ko /home/craigyang/mytoturial/nicdriver/08NICdevice/lesson7/nicspy.o /home/craigyang/mytoturial/nicdriver/08NICdevice/lesson7/nicspy.mod.o
