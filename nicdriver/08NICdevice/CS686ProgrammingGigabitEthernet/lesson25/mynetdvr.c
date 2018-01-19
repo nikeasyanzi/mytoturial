@@ -12,6 +12,7 @@
 
 #include <linux/module.h>	// for init_module()
 #include <linux/etherdevice.h>	// for alloc_etherdev() 
+#include <linux/netdevice.h>	// 
 #include <linux/interrupt.h>	// for request_irq()
 #include <linux/proc_fs.h>	// for create_proc_info_entry()
 #include <linux/pci.h>		// for pci_get_device()
@@ -34,6 +35,7 @@
 #define RAH_MAC_ADDR_LEN 2
 #define MAX_ETH_ADDR_LEN (RAL_MAC_ADDR_LEN + RAH_MAC_ADDR_LEN)
 
+//#define USE_NAPI
 typedef struct	{ 
 		unsigned long long	base_address;
 		unsigned short		packet_length;
@@ -62,9 +64,13 @@ typedef struct	{
 		unsigned char	txbuff[ N_TX_DESC * TX_BUFSIZ ];
 		unsigned int	rxnext;
 		struct tasklet_struct	rx_tasklet;
+<<<<<<< Updated upstream
 
+=======
+		struct napi_struct mynapi; 
+		spinlock_t mylock;
+>>>>>>> Stashed changes
 		} MY_DRIVERDATA;
-
 
 
 
@@ -112,6 +118,7 @@ int my_stop( struct net_device * );
 int my_hard_start_xmit( struct sk_buff *, struct net_device * );
 static ssize_t my_get_info(struct file *filp,char *buf,size_t count,loff_t *offp );
 int my_get_mac(void);
+static int my_napipoll(struct napi_struct *napi, int budget);
 module_init( my_init );
 module_exit( my_exit );
 MODULE_LICENSE("GPL");
@@ -120,7 +127,7 @@ MODULE_LICENSE("GPL");
 static struct file_operations my_proc= {
     .owner = THIS_MODULE,
     .read= my_get_info
-};
+ }; 
 
 // global variables
 char modname[] = "mynetdvr";
@@ -131,12 +138,15 @@ void		*io;
 struct net_device  *my_netdev;
 
 
+
+
 struct net_device_ops	my_ops = {
 				 ndo_open:		my_open,
 				 ndo_stop:		my_stop,
 				 ndo_start_xmit:	my_hard_start_xmit,
 				 };
 
+};
 
 int my_get_mac(void){
 
@@ -256,8 +266,12 @@ static int __init my_init( void )
 	my_netdev->flags		|= IFF_PROMISC;
 	my_netdev->ml_priv		= netdev_priv( my_netdev );
 
+
 	// create our driver's pseudo-file (for debugging)
     proc_create(modname, 0, NULL, &my_proc);
+
+
+
 
 	// register this driver's 'net_device' structure
 	return	register_netdev( my_netdev );
@@ -292,6 +306,11 @@ int my_open( struct net_device *dev )
 	unsigned long	txdescaddr = virt_to_phys( txq );
 	int		i;
 	int rx_control=0;
+
+//#ifdef USE_NAPI
+//	netif_napi_add(my_netdev, & (mdp->mynapi),my_napipoll, 64); 
+//#endif
+	
 	printk( " %s: opening the \'%s\' device \n", modname, dev->name );
 
 	// reset the network controller
@@ -303,18 +322,18 @@ int my_open( struct net_device *dev )
 
 	// initialize the RX Descriptor-queues
 	for (i = 0; i < N_RX_DESC; i++ )
-		{
+	{
 		rxq[ i ].base_address = rbuf + i * RX_BUFSIZ;
 		rxq[ i ].packet_length = 0;
 		rxq[ i ].packet_chksum = 0;
 		rxq[ i ].desc_status = 0;
 		rxq[ i ].desc_errors = 0;
 		rxq[ i ].vlan_tag = 0;
-		} 
+ 	} 
 
 	// initialize the TX Descriptor-queues
 	for (i = 0; i < N_TX_DESC; i++ )
-		{
+	{
 		txq[ i ].base_address = tbuf + i * TX_BUFSIZ;
 		txq[ i ].packet_length = 0;
 		txq[ i ].cksum_offset = 0;
@@ -322,32 +341,32 @@ int my_open( struct net_device *dev )
 		txq[ i ].desc_status = 0;
 		txq[ i ].cksum_origin = 0;
 		txq[ i ].special_info = 0;
-		}
+ 	}
 
 
-/*
-	rx_control = 0;
-	rx_control |= (0<<1);	// EN-bit (Enable)
-	rx_control |= (1<<2);	// SBP-bit (Store Bad Packets)
-	rx_control |= (1<<3);	// UPE-bit (Unicast Promiscuous Enable)
-	rx_control |= (1<<4);	// MPE-bit (Multicase Promiscuous Enable)
-	rx_control |= (0<<5);	// LPE-bit (Long Packet Enable)
-	rx_control |= (0<<6);	// LBM=0 (LoopBack Mode off)
-	rx_control |= (2<<8);	// RDMTS=3 (Rx-Descriptor Min Thresh Size)
-	rx_control |= (0<<10);	// DTYPE=0 (Descriptor Type)
-	rx_control |= (0<<12);	// MO=0 (Multicast Offset)
-	rx_control |= (1<<15);	// BAM-bit (Broadcast Address Enable)
-	rx_control |= (0<<16);	// BSIZE=0 (Receive Buffer Size = 2048)
-	rx_control |= (1<<18);	// VLE-bit (VLAN Filter Enable)
-	rx_control |= (0<<19);	// CFIEN=0 (Canonical Form Indicator Enable)
-	rx_control |= (0<<20);	// CFI=0 (Canonical Form Indicator bit-value)
-	rx_control |= (0<<22);	// DPF-bit (Discard Pause Frames)
-	rx_control |= (1<<23);	// PMCF-bit (Pass MAC Control Frames)
-	rx_control |= (0<<25);	// BSEX-bit (Buffer Size Extension)
-	rx_control |= (1<<26);	// SECRC-bit (Strip Ethernet CRC)
-	rx_control |= (0<<27);	// FLEXBUF=0 (Flexible Buffer Size)	
-*/	// configure the controller's Receive Engine
-	
+	/*
+	   rx_control = 0;
+	   rx_control |= (0<<1);	// EN-bit (Enable)
+	   rx_control |= (1<<2);	// SBP-bit (Store Bad Packets)
+	   rx_control |= (1<<3);	// UPE-bit (Unicast Promiscuous Enable)
+	   rx_control |= (1<<4);	// MPE-bit (Multicase Promiscuous Enable)
+	   rx_control |= (0<<5);	// LPE-bit (Long Packet Enable)
+	   rx_control |= (0<<6);	// LBM=0 (LoopBack Mode off)
+	   rx_control |= (2<<8);	// RDMTS=3 (Rx-Descriptor Min Thresh Size)
+	   rx_control |= (0<<10);	// DTYPE=0 (Descriptor Type)
+	   rx_control |= (0<<12);	// MO=0 (Multicast Offset)
+	   rx_control |= (1<<15);	// BAM-bit (Broadcast Address Enable)
+	   rx_control |= (0<<16);	// BSIZE=0 (Receive Buffer Size = 2048)
+	   rx_control |= (1<<18);	// VLE-bit (VLAN Filter Enable)
+	   rx_control |= (0<<19);	// CFIEN=0 (Canonical Form Indicator Enable)
+	   rx_control |= (0<<20);	// CFI=0 (Canonical Form Indicator bit-value)
+	   rx_control |= (0<<22);	// DPF-bit (Discard Pause Frames)
+	   rx_control |= (1<<23);	// PMCF-bit (Pass MAC Control Frames)
+	   rx_control |= (0<<25);	// BSEX-bit (Buffer Size Extension)
+	   rx_control |= (1<<26);	// SECRC-bit (Strip Ethernet CRC)
+	   rx_control |= (0<<27);	// FLEXBUF=0 (Flexible Buffer Size)	
+ 	   */	// configure the controller's Receive Engine
+
 	iowrite32( 0x0400801C, io + E1000_RCTL );
 	rx_control=0x0400801C;
 	iowrite32( rxdescaddr, io + E1000_RDBAL );
@@ -378,20 +397,31 @@ int my_open( struct net_device *dev )
 	// start the receive engine
 	iowrite32( N_RX_DESC, io + E1000_RDT );
 	iowrite32( ioread32( io + E1000_RCTL ) | (1<<1), io + E1000_RCTL );
-		
+
 	// start the transmit engine
 	iowrite32( ioread32( io + E1000_TCTL ) | (1<<1), io + E1000_TCTL );
 	
 	printk("txdescaddr=%x\n ",txdescaddr);
 	printk("rxdescaddr=%x\n ",rxdescaddr);
 	
+
+	//printk("txdescaddr=%x\n ",txdescaddr);
+	//printk("rxdescaddr=%x\n ",rxdescaddr);
+
+
+//#ifdef USE_NAPI 
+//	napi_enable(&mdp->mynapi); 
+//#endif
 	netif_start_queue( dev );
+
+
+
 	return	0;  // SUCCESS
- }
+}
 
 
 int my_stop( struct net_device *dev )
-{ 
+{  
 	//--------------------------------------------------------
 	// The kernel calls this function whenever the 'ifconfig'
 	// command is executed to shut down the device interface.
@@ -410,9 +440,20 @@ int my_stop( struct net_device *dev )
 	iowrite32( 0x00000000, io + E1000_IMC );
 	free_irq( dev->irq, dev );
 
+
+#ifdef USE_NAPI 
+	napi_disable(& mdp->mynapi); 
+#else
 	// stop our tasklet and the network interface queue
-	//tasklet_kill( &mdp->rx_tasklet );
+	tasklet_kill( &mdp->rx_tasklet );
+
+#endif 
 	netif_stop_queue( dev );
+<<<<<<< Updated upstream
+=======
+
+
+>>>>>>> Stashed changes
 	return	0;  // SUCCESS
 } 
 
@@ -426,17 +467,25 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 	// else arrange for it to be called by our interrupt-handler.  	
 	//------------------------------------------------------------
 
-	
+
 	MY_DRIVERDATA	*mdp = netdev_priv (dev);	
 	TX_DESCRIPTOR	*txq ;
 	unsigned int	curr ;
-	
+
 	unsigned int	next;
 	unsigned char	*src ;
 	unsigned char	*dst ;
-	
+
 	unsigned short	len;
+<<<<<<< Updated upstream
 	
+=======
+	unsigned long flags;
+
+	spin_lock_irqsave(&mdp->mylock, flags);
+
+
+>>>>>>> Stashed changes
 	txq= mdp->txring;
 	curr= ioread32( io + E1000_TDT );
 	next= (1 + curr) % N_TX_DESC;
@@ -447,7 +496,7 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 	// save the timestamp
 	//dev->trans_start = jiffies;
 	netdev_get_tx_queue(dev,0)->trans_start=jiffies;
-	
+
 	// copy the socket-buffer's data into the next packet-buffer
 	if ( len > TX_BUFSIZ ) len = TX_BUFSIZ;
 	memcpy( dst, src, len );
@@ -457,12 +506,13 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 	txq[ curr ].cksum_offset = 0;
 	txq[ curr ].cksum_origin = 0;
 	txq[ curr ].special_info = 0;
+	printk("curr=%d, status=%d\n",curr, txq[curr].desc_status);
 	txq[ curr ].desc_status = 0;
 	txq[ curr ].desc_command = (1<<0)|(1<<1)|(1<<3);  // EOP/IFCS/RS
-		
+
 	// initiate the transmission
 	iowrite32( next, io + E1000_TDT );
-	
+
 	// update the 'net_device' statistics
 	dev->stats.tx_packets += 1;
 	dev->stats.tx_bytes += len;
@@ -470,12 +520,12 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 	// it is essential to free the socket-buffer structure
 	dev_kfree_skb( skb );
 
-	return	0;  // SUCCESS
+	return	NETDEV_TX_OK;  // SUCCESS
 } 
 
 
 void my_rx_handler( unsigned long data )
-{ 
+{   
 	//--------------------------------------------------------------
 	// This function is scheduled by our driver's interrupt-handler
 	// whenever the controller has received some new packets. 
@@ -494,7 +544,15 @@ void my_rx_handler( unsigned long data )
 	unsigned int RDT= ioread32(io+E1000_RDT);
 	unsigned int RDH= ioread32(io+E1000_RDH);
 	//printk("rx_handler is called,status=%d, curr=%d,rdh=%d, rdt=%d\n",rdq[curr].desc_status,curr ,RDH,RDT);
+<<<<<<< Updated upstream
  	
+=======
+
+ 	while(curr!=RDH){
+		src = phys_to_virt( rdq[ curr ].base_address );
+		len = rdq[ curr ].packet_length;
+		skb = dev_alloc_skb( len + NET_IP_ALIGN );
+>>>>>>> Stashed changes
 
 		// clear the current descriptor's status 
 		rdq[ curr ].desc_status = 0;
@@ -514,7 +572,7 @@ void my_rx_handler( unsigned long data )
 		// advance our driver's 'rxnext' index 
 		curr = (++curr) % N_RX_DESC;
 		mdp->rxnext=curr;
-		
+
 		// update the 'net_device' statistics
 		dev->stats.rx_packets += 1;
 		dev->stats.rx_bytes += len;
@@ -524,13 +582,69 @@ void my_rx_handler( unsigned long data )
 
 		// now hand over the socket-buffer to the kernel
 		netif_rx( skb );
+	}
+}  
+
 
 } 
 
 
+static int my_napipoll(struct napi_struct *napi,int budget){
+	
+	MY_DRIVERDATA	*mdp = container_of(napi, MY_DRIVERDATA,mynapi);	
+	struct net_device *dev=my_netdev;
+	RX_DESCRIPTOR		*rdq = (RX_DESCRIPTOR*)mdp->rxring;
+	unsigned int		curr = mdp->rxnext;
+	void			*src;
+	int			len;
+	struct sk_buff		*skb ; 
+
+	int rxtail;
+
+	unsigned int RDT= ioread32(io+E1000_RDT);
+	unsigned int RDH= ioread32(io+E1000_RDH);
+	//printk("rx_handler is called,status=%d, curr=%d,rdh=%d, rdt=%d\n",rdq[curr].desc_status,curr ,RDH,RDT);
 
 
+ 	while(curr!=RDH){
+		src = phys_to_virt( rdq[ curr ].base_address );
+		len = rdq[ curr ].packet_length;
+		skb = dev_alloc_skb( len + NET_IP_ALIGN );
 
+		// clear the current descriptor's status 
+		rdq[ curr ].desc_status = 0;
+		rdq[ curr ].desc_errors = 0;
+
+		// allocate a new socket-buffer
+		if ( !skb ) { dev->stats.rx_dropped += 1; return; }
+
+		// copy received packet-data into this socket-buffer
+		memcpy( skb_put( skb, len ), src, len );
+
+		// adjust the socket-buffer's parameters
+		skb->dev = dev;
+		skb->protocol = eth_type_trans( skb, dev );
+		skb->ip_summed = CHECKSUM_NONE;
+
+		// advance our driver's 'rxnext' index 
+		curr = (++curr) % N_RX_DESC;
+		mdp->rxnext=curr;
+
+		// update the 'net_device' statistics
+		dev->stats.rx_packets += 1;
+		dev->stats.rx_bytes += len;
+
+		// record the timestamp
+		dev->last_rx = jiffies;
+
+		// now hand over the socket-buffer to the kernel
+		netif_receive_skb(skb);
+	}
+
+	//stop the polling 
+	//	napi_complete(struct napi_struct *napi);
+
+}  
 
 
 
@@ -551,6 +665,21 @@ irqreturn_t my_isr( int irq, void *dev_id )
 	if ( intr_cause & (1<<4) ) printk( "RXDMT0 " );
 	//	if ( intr_cause & (1<<6) ) printk( "RXO " );
 	if ( intr_cause & (1<<7) ) printk( "RXT0 " );
+
+	//disable interrupt
+	//iowrite32( 0xFFFFFFFF, io + E1000_IMC );
+
+	spin_lock_irqsave(&mdp->mylock, flags);
+
+	if ( intr_cause == 0 ) return IRQ_NONE;
+
+	//		printk( "NIC2 %-2d  cause=%08X  ", ++reps, intr_cause );
+	//	if ( intr_cause & (1<<0) ) printk( "TXDW " );
+	//	if ( intr_cause & (1<<1) ) printk( "TXQE " );
+	//	if ( intr_cause & (1<<2) ) printk( "LC " );
+	//	if ( intr_cause & (1<<4) ) printk( "RXDMT0 " );
+	//	if ( intr_cause & (1<<6) ) printk( "RXO " );
+	//	if ( intr_cause & (1<<7) ) printk( "RXT0 " );
 	//	if ( intr_cause & (1<<9) ) printk( "MDAC " );
 	//	if ( intr_cause & (1<<15) ) printk( "TXDLOW " );
 	//	if ( intr_cause & (1<<16) ) printk( "SRPD " );
@@ -562,10 +691,27 @@ irqreturn_t my_isr( int irq, void *dev_id )
 		int	rxtail = ioread32( io + E1000_RDT );
 		rxtail = ( N_RX_DESC/8 + rxtail) % N_RX_DESC;
 		iowrite32( rxtail, io + E1000_RDT );
+<<<<<<< Updated upstream
 	}
 	// schedule our interrupt-handler's 'bottom-half'
 	if ( intr_cause & (1<<7) ){
+=======
+ 	} 
+ 	// schedule our interrupt-handler's 'bottom-half'
+ 	if ( intr_cause & (1<<7) ){
+
+
+#ifdef USE_NAPI 
+		//disable RXT0 interrupt
+		iowrite32(0x0000000080,io+E1000_IMC);
+		napi_schedule( &(mdp->mynapi)); 
+		//enable RXT0 interrupt
+		iowrite32(0x0000000080,io+E1000_IMS);
+#else
+>>>>>>> Stashed changes
 		tasklet_schedule( &mdp->rx_tasklet );
+#endif
+
 	}
 
 
@@ -575,6 +721,14 @@ irqreturn_t my_isr( int irq, void *dev_id )
 	
 	return	IRQ_HANDLED;
 }   
+
+	//enable interrupt
+	//iowrite32( 0xFFFFFFFF, io + E1000_IMS );
+
+	spin_unlock_irqrestore(&mdp->mylock, flags);
+
+	return	IRQ_HANDLED;
+ }    
 
 
 
