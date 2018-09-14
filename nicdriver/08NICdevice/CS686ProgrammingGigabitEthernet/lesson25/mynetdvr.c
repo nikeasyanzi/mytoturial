@@ -64,6 +64,11 @@ typedef struct{
 		unsigned int	rxnext;
 		struct tasklet_struct	rx_tasklet;
 		spinlock_t mylock;
+
+
+		dma_addr_t tx_ring_dma;
+		dma_addr_t rx_ring_dma;
+
 		} MY_DRIVERDATA;
 
 
@@ -302,6 +307,17 @@ int my_open( struct net_device *dev )
 	iowrite32( 0x000C0241, io + E1000_CTRL );
 	while ( ( ioread32( io + E1000_STATUS )&3 ) != 3 );
 
+
+
+
+
+
+
+
+
+
+
+
 	// initialize the RX Descriptor-queues
 	for (i = 0; i < N_RX_DESC; i++ )
 		{
@@ -479,7 +495,7 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 	// it is essential to free the socket-buffer structure
 	dev_kfree_skb( skb );
 
-	return	0;  // SUCCESS
+	return	NETDEV_TX_OK;  // SUCCESS
 } 
 
 
@@ -565,14 +581,28 @@ irqreturn_t my_isr( int irq, void *dev_id )
 	if ( intr_cause == 0 ) return IRQ_NONE;
 
 //		printk( "NIC2 %-2d  cause=%08X  ", ++reps, intr_cause );
-	//	if ( intr_cause & (1<<0) ) printk( "TXDW " );
-	//	if ( intr_cause & (1<<1) ) printk( "TXQE " );
+	//	if ( intr_cause & (1<<0) ) printk( "TXDW " );//write back
+	if ( intr_cause & (1<<1) )
+	{
+		if (netif_queue_stopped(dev)) netif_wake_queue(dev);
+		printk( "TXQE " );
+
+	}
 	//	if ( intr_cause & (1<<2) ) printk( "LC " );
 //	if ( intr_cause & (1<<4) ) printk( "RXDMT0 " );
 	//	if ( intr_cause & (1<<6) ) printk( "RXO " );
 //	if ( intr_cause & (1<<7) ) printk( "RXT0 " );
 	//	if ( intr_cause & (1<<9) ) printk( "MDAC " );
-	//	if ( intr_cause & (1<<15) ) printk( "TXDLOW " );
+	if ( intr_cause & (1<<15) ) 
+	{
+
+		netif_stop_queue(dev);
+		printk( "TXDLOW " );
+	
+
+
+	}
+
 	//	if ( intr_cause & (1<<16) ) printk( "SRPD " );
 	//	if ( intr_cause & (1<<17) ) printk( "ACK " );
 	//	printk( "\n" );	
