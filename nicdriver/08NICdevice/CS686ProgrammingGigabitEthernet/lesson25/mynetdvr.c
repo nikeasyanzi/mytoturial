@@ -65,13 +65,13 @@ typedef struct{
 		struct tasklet_struct	rx_tasklet;
 		spinlock_t mylock;
 
-
+		struct sk_buff *rxskbuff[N_RX_DESC];
+		struct sk_buff *txskbbuff[N_TX_DESC];
+		int tx_dirty;	// is to record where we start to free skb received from tx
 		dma_addr_t tx_ring_dma;
 		dma_addr_t rx_ring_dma;
 
 		} MY_DRIVERDATA;
-
-
 
 
 enum 	{ 
@@ -331,7 +331,7 @@ int my_open( struct net_device *dev )
 
 	// initialize the TX Descriptor-queues
 	for (i = 0; i < N_TX_DESC; i++ )
-		{
+ 		{
 		txq[ i ].base_address = tbuf + i * TX_BUFSIZ;
 		txq[ i ].packet_length = 0;
 		txq[ i ].cksum_offset = 0;
@@ -341,7 +341,7 @@ int my_open( struct net_device *dev )
 		txq[ i ].special_info = 0;
 		}
 
-
+	mdp->tx_dirty=-1;
 /*
 	rx_control = 0;
 	rx_control |= (0<<1);	// EN-bit (Enable)
@@ -363,7 +363,7 @@ int my_open( struct net_device *dev )
 	rx_control |= (0<<25);	// BSEX-bit (Buffer Size Extension)
 	rx_control |= (1<<26);	// SECRC-bit (Strip Ethernet CRC)
 	rx_control |= (0<<27);	// FLEXBUF=0 (Flexible Buffer Size)	
-*/	// configure the controller's Receive Engine
+*/	// configure the  controller's Receive Engine
 	
 	iowrite32( 0x0400801C, io + E1000_RCTL );
 	rx_control=0x0400801C;
@@ -440,7 +440,7 @@ int my_stop( struct net_device *dev )
 
 
 int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
-{  
+{   
 	//------------------------------------------------------------
 	// The kernel calls this function whenever its protocol layer
 	// has a packet that it wants the controller to transmit.  It
@@ -485,22 +485,26 @@ int my_hard_start_xmit( struct sk_buff *skb, struct net_device *dev )
 	txq[ curr ].desc_command = (1<<0)|(1<<1)|(1<<3);  // EOP/IFCS/RS
 		
 	// initiate the transmission
-	iowrite32( next, io + E1000_TDT );
+	iowrite32( next, io + E1000_TDT );	//curr is owned by software, tail next is owned by software, ref p.66 fig 3-4 
 	
 	// update the 'net_device' statistics
 	dev->stats.tx_packets += 1;
 	dev->stats.tx_bytes += len;
 
+	//printk("curr %d, is sent\n",curr);
+
+	if (mdp->tx_dirty==-1) mdp->tx_dirty=curr;
+	mdp->txskbbuff[curr]=skb; // record it
+	
 	spin_unlock_irqrestore(&mdp->mylock, flags);
 	// it is essential to free the socket-buffer structure
-	dev_kfree_skb( skb );
 
 	return	NETDEV_TX_OK;  // SUCCESS
-} 
+}  
 
 
 void my_rx_handler( unsigned long data )
-{ 
+{  
 	//--------------------------------------------------------------
 	// This function is scheduled by our driver's interrupt-handler
 	// whenever the controller has received some new packets. 
@@ -560,10 +564,6 @@ void my_rx_handler( unsigned long data )
 
 
 
-
-
-
-
 irqreturn_t my_isr( int irq, void *dev_id )
 {
 	struct net_device	*dev = (struct net_device*)dev_id;
@@ -572,18 +572,33 @@ irqreturn_t my_isr( int irq, void *dev_id )
 	unsigned long flags;
 	unsigned int		intr_cause = ioread32( io + E1000_ICR );
 
-
+	unsigned int curr;
+	unsigned int idx=0;
 	//disable interrupt
 	//iowrite32( 0xFFFFFFFF, io + E1000_IMC );
 
 
 	spin_lock_irqsave(&mdp->mylock, flags);
 	if ( intr_cause == 0 ) return IRQ_NONE;
-
-//		printk( "NIC2 %-2d  cause=%08X  ", ++reps, intr_cause );
-	//	if ( intr_cause & (1<<0) ) printk( "TXDW " );//write back
+//	 	printk( "NIC2 %-2d  cause=%08X  ", ++reps, intr_cause );
+	if ( intr_cause & (1<<0) ){	//here we move the skb free task till the we receive the receive back command
+	//	printk( "TXDW " );
+ 		curr= ioread32( io + E1000_TDH );
+		if (mdp->tx_dirty!=-1){
+			idx=mdp->tx_dirty;
+			while(idx!=curr){
+	//			printk("%d freeed\n ",idx);
+				kfree (mdp->txskbbuff[idx]);
+				idx=(idx+1)%N_TX_DESC;
+			}
+			mdp->tx_dirty=-1;
+		}
+	}
+	
+	//write back
+	
 	if ( intr_cause & (1<<1) )
-	{
+	{ 
 		if (netif_queue_stopped(dev)) netif_wake_queue(dev);
 		printk( "TXQE " );
 
@@ -595,12 +610,8 @@ irqreturn_t my_isr( int irq, void *dev_id )
 	//	if ( intr_cause & (1<<9) ) printk( "MDAC " );
 	if ( intr_cause & (1<<15) ) 
 	{
-
 		netif_stop_queue(dev);
 		printk( "TXDLOW " );
-	
-
-
 	}
 
 	//	if ( intr_cause & (1<<16) ) printk( "SRPD " );
@@ -629,7 +640,7 @@ irqreturn_t my_isr( int irq, void *dev_id )
 	spin_unlock_irqrestore(&mdp->mylock, flags);
 	
 	return	IRQ_HANDLED;
-}    
+}     
 
 
 
